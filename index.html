@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Wii Sports 스타일의 3D 아케이드 테니스 게임! 역동적인 라켓 물리 엔진, 풍부한 표정의 Mii 캐릭터, 웹캠 및 스마트폰 모션 센서 컨트롤, 그리고 실시간 한국어/영문 다국어 지원." />
+  <title>아르곤 테니스 - Wii 스타일 3D 테니스</title>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('play') || params.has('state')) {
+        document.documentElement.classList.add('autoplay-mode');
+      }
+      const stateParam = (params.get('state') || '').toLowerCase();
+      if (stateParam) {
+        document.documentElement.setAttribute('data-url-state', stateParam);
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="root" class="hidden" aria-hidden="true"></div>
+
+  <!-- 3D Three.js Stadium Viewport -->
+  <div id="canvas-container" aria-label="Argon Tennis 3D Stadium Viewport">
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+  <!-- HUD Overlay Root -->
+  <div id="hud-root">
+    <!-- Top Scoreboard Bar -->
+    <header id="top-hud-bar">
+      <div id="games-pill-player" class="wii-games-pill" title="내 세트 획득 수">
+        <span class="game-bubble" data-slot="0"></span>
+        <span class="game-bubble" data-slot="1"></span>
+        <span class="game-bubble extra-slot hidden" data-slot="2"></span>
+      </div>
+
+      <div id="scoreboard-pill" class="wii-scoreboard-pill">
+        <div class="mii-side mii-side-player">
+          <div class="mii-avatar-badge player-tint">
+            <canvas id="mii-icon-player" width="192" height="192"></canvas>
+          </div>
+          <div class="mii-avatar-badge player-tint secondary-mii">
+            <canvas id="mii-icon-player-2" width="192" height="192"></canvas>
+          </div>
+        </div>
+
+        <div id="score-center-display" class="score-center-display">
+          <span id="score-player-text" class="score-digits">00</span>
+          <span id="score-separator" class="score-dash">-</span>
+          <span id="score-opponent-text" class="score-digits">00</span>
+        </div>
+
+        <div class="mii-side mii-side-opponent">
+          <div class="mii-avatar-badge opponent-tint secondary-mii">
+            <canvas id="mii-icon-opponent-2" width="192" height="192"></canvas>
+          </div>
+          <div class="mii-avatar-badge opponent-tint">
+            <canvas id="mii-icon-opponent" width="192" height="192"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div id="games-pill-opponent" class="wii-games-pill" title="상대 세트 획득 수">
+        <span class="game-bubble" data-slot="0"></span>
+        <span class="game-bubble" data-slot="1"></span>
+        <span class="game-bubble extra-slot hidden" data-slot="2"></span>
+      </div>
+    </header>
+
+    <!-- Opponent Presence Status Pill -->
+    <div id="opponent-presence-pill" class="opponent-presence-pill hidden" aria-live="polite">
+      <span id="opponent-presence-dot" class="presence-dot"></span>
+      <span id="opponent-presence-text">상대 플레이어 대기 중…</span>
+    </div>
+
+    <!-- 3D World Floating Nameplates & Labels -->
+    <div id="world-labels-layer">
+      <div id="server-tag" class="wii-server-tag hidden">
+        <span class="server-tag-text" data-i18n="server_tag">서버</span>
+      </div>
+
+      <div id="player-nameplate" class="wii-court-nameplate player-plate hidden">
+        <canvas id="plate-mii-player" width="192" height="192"></canvas>
+        <div class="plate-info">
+          <div class="plate-name" data-i18n="player_default_name">플레이어</div>
+          <div class="plate-skill" data-i18n="player_skill">실력 레벨 1050</div>
+        </div>
+      </div>
+
+      <div id="timing-popup" class="wii-timing-popup hidden">
+        <span id="timing-popup-grade" class="timing-grade">완벽함!</span>
+        <span id="timing-popup-detail" class="timing-detail">파워 탑스핀 • 178 KM/H</span>
+      </div>
+    </div>
+
+    <!-- Center Screen Big Banner -->
+    <div id="center-banner-layer" class="center-banner-layer hidden">
+      <div id="center-banner-streak" class="center-banner-streak"></div>
+      <div id="center-banner-text" class="center-banner-text style-gold">게임 포인트</div>
+      <div id="center-banner-sub" class="center-banner-sub hidden"></div>
+    </div>
+
+    <!-- Replay Badge Indicator -->
+    <div id="replay-badge" class="wii-replay-badge hidden">
+      <span class="replay-dots">
+        <i class="dot dot-1"></i>
+        <i class="dot dot-2"></i>
+        <i class="dot dot-3"></i>
+      </span>
+      <span class="replay-label" data-i18n="btn_replay">리플레이</span>
+    </div>
+
+    <!-- Keyboard Controls Help Strip -->
+    <div id="keyboard-help-strip" class="keyboard-help-strip">
+      조작: [Space/Enter] 스윙 | [T/W/↑] 서브 토스 | [A/D 또는 방향키] 코스 조절 | [1~4] 구질 선택 (탑스핀/슬라이스/로브/스매시) | [C] 시점 | [R] 리플레이
+    </div>
+
+    <!-- Bottom Controls & HUD Dock -->
+    <div id="bottom-right-dock" class="hud-corner-dock bottom-right-dock">
+      <!-- Timing Gauge Card -->
+      <div id="timing-gauge-card" class="timing-gauge-card">
+        <div class="gauge-header">
+          <span id="gauge-mode-title" data-i18n="gauge_mode_timing">스윙 타이밍</span>
+          <span id="gauge-speed-readout" data-i18n="gauge_ready">준비</span>
+        </div>
+        <div class="timing-bar-track">
+          <div class="timing-zone zone-early" data-i18n="zone_early">빠름 (크로스)</div>
+          <div class="timing-zone zone-sweet" data-i18n="zone_sweet">스윗 스팟</div>
+          <div class="timing-zone zone-late" data-i18n="zone_late">늦음 (다운더라인)</div>
+          <div id="timing-cursor" class="timing-cursor" style="left: 50%;"></div>
+        </div>
+      </div>
+
+      <!-- Motion & Controls Buttons Row -->
+      <div class="motion-controls-row">
+        <!-- Webcam PiP Preview -->
+        <div id="webcam-pip-card" class="webcam-pip-card hidden">
+          <video id="webcam-video" autoplay playsinline muted></video>
+          <canvas id="webcam-canvas" width="160" height="120"></canvas>
+          <div class="pip-badge">
+            <span class="pip-live-dot"></span>
+            <span id="pip-motion-label" data-i18n="pip_webcam_swing">웹캠 스윙 감지</span>
+          </div>
+        </div>
+
+        <div class="motion-buttons-col">
+          <button id="btn-webcam-toggle" class="hud-mini-btn motion-btn" type="button">
+            <span class="btn-dot" id="webcam-status-dot"></span>
+            <span data-i18n="btn_webcam">웹캠 모션</span>
+          </button>
+          <button id="btn-phone-racket" class="hud-mini-btn motion-btn hidden" type="button">
+            <span class="btn-dot" id="phone-status-dot"></span>
+            <span id="phone-status-label" data-i18n="btn_phone">스마트폰 라켓</span>
+          </button>
+
+          <!-- Bottom Left Utility Dock -->
+          <div id="bottom-left-dock" class="hud-corner-dock bottom-left-dock">
+            <div class="dock-pill-row">
+              <button id="btn-audio-toggle" class="hud-mini-btn" type="button" title="배경음 및 효과음 켜기/끄기">
+                <span class="btn-dot music-on" id="audio-status-dot"></span>
+                <span id="audio-track-label">BGM: 활기찬 랠리</span>
+              </button>
+              <button id="btn-camera-cycle" class="hud-mini-btn" type="button" title="카메라 시점 변경 (C)">
+                <span data-i18n="cam_mode_prefix">시점:</span>
+                <strong id="camera-mode-label">랠리</strong>
+              </button>
+              <button id="btn-replay-trigger" class="hud-mini-btn" type="button" title="즉시 리플레이 보기 (R)">
+                <span data-i18n="btn_replay">리플레이</span>
+              </button>
+              <button id="btn-bottom-lang" class="hud-mini-btn lang-toggle-btn btn-lang-toggle" type="button" title="언어 변경 (한국어 / English)">
+                <span class="btn-icon">🌐</span>
+                <span id="lang-current-label">한국어</span>
+              </button>
+              <button id="btn-multiplayer-modal" class="hud-mini-btn hidden" type="button" title="1v1 멀티플레이 및 스마트폰 연결">
+                <span>💬 1v1 매치</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Title & Match Setup Modal -->
+  <div id="title-modal" class="wii-modal-backdrop">
+    <div class="wii-title-card">
+      <!-- Title Card Top Bar with Language Switcher -->
+      <div class="title-lang-container">
+        <button type="button" class="title-lang-btn btn-lang-toggle" id="btn-title-lang" title="언어 변경 (Switch Language)">
+          <span class="btn-icon">🌐</span>
+          <span id="title-lang-label">한국어</span>
+        </button>
+      </div>
+
+      <div class="wii-logo-header">
+        <h1 class="argon-logo-title">
+          <span class="logo-word-argon">Argon</span>
+          <span class="logo-word-tennis">Tennis</span>
+        </h1>
+      </div>
+
+      <!-- Mini Court Matchup Preview -->
+      <div class="court-preview-diagram">
+        <div class="mini-court-turf">
+          <div class="mini-court-lines">
+            <div class="mini-net-line"></div>
+            <div class="mini-service-box top"></div>
+            <div class="mini-service-box bottom"></div>
+          </div>
+          <div class="court-slot-marker opponent-marker">
+            <canvas id="setup-mii-opponent" width="192" height="192"></canvas>
+            <div id="setup-opponent-label" class="slot-tag cpu-tag" data-i18n="club_ai">클럽 AI</div>
+          </div>
+          <div class="court-slot-marker player-marker">
+            <canvas id="setup-mii-player" width="192" height="192"></canvas>
+            <div class="slot-tag you-tag" data-i18n="you">나</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Difficulty Mode Buttons -->
+      <div class="setup-section">
+        <div class="wii-green-btn-row" id="difficulty-mode-group">
+          <button type="button" class="wii-green-choice selected" data-difficulty="casual">
+            <span class="choice-main" data-i18n="difficulty_casual">캐주얼 AI</span>
+          </button>
+          <button type="button" class="wii-green-choice" data-difficulty="pro">
+            <span class="choice-main" data-i18n="difficulty_pro">프로 AI</span>
+          </button>
+          <button type="button" class="wii-green-choice" data-difficulty="1v1">
+            <span class="choice-main" data-i18n="difficulty_1v1">1v1 대전</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Match Length Selection -->
+      <div class="setup-section" id="match-length-section">
+        <div class="wii-green-btn-row" id="match-length-group">
+          <button type="button" class="wii-green-choice" data-games="1">
+            <span class="choice-main" data-i18n="games_1">1 게임</span>
+          </button>
+          <button type="button" class="wii-green-choice selected" data-games="3">
+            <span class="choice-main" data-i18n="games_3">3판 2선승</span>
+          </button>
+          <button type="button" class="wii-green-choice" data-games="5">
+            <span class="choice-main" data-i18n="games_5">5판 3선승</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Start Action Button -->
+      <div class="wii-modal-actions">
+        <button id="btn-start-match" type="button" class="wii-ok-btn">
+          <span class="hand-cursor-icon">🎾</span>
+          <span data-i18n="btn_start_match">게임 시작</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Companion Phone Controller Modal -->
+  <div id="companion-modal" class="wii-modal-backdrop hidden">
+    <div class="wii-dialog-box wii-companion-clean-dialog">
+      <div class="mp-dialog-header">
+        <h2 class="dialog-title" data-i18n="companion_title">📱 스마트폰 컨트롤러</h2>
+        <span id="mp-active-status" class="mp-conn-tag" data-i18n="companion_status_scan">QR 스캔 대기</span>
+      </div>
+      <p class="dialog-desc" data-i18n="companion_desc">스마트폰 기본 카메라로 QR 코드를 스캔하세요</p>
+
+      <div id="mp-card-p1" class="mp-clean-qr-wrap">
+        <span id="mp-p1-status" class="hidden"></span>
+        <img id="companion-qr" src="https://www.gstatic.com/aistudio/starter-apps/tennis/qr/player1_qr.png" alt="Phone Controller QR" width="200" height="200" class="mp-qr-img" />
+        <a id="companion-link" href="/companion.html?room=default&role=p1" target="_blank" rel="noopener" class="mp-subtle-link" data-i18n="companion_link_text">컨트롤러 링크 직접 열기 ↗</a>
+      </div>
+
+      <div id="mp-card-p2" class="mp-clean-qr-wrap hidden">
+        <span id="mp-p2-status" class="hidden"></span>
+        <img id="companion-qr-p2" src="https://www.gstatic.com/aistudio/starter-apps/tennis/qr/player2_qr.png" alt="Phone Controller QR" width="200" height="200" class="mp-qr-img" />
+        <a id="companion-link-p2" href="/companion.html?room=default&role=p2" target="_blank" rel="noopener" class="mp-subtle-link" data-i18n="companion_link_text">컨트롤러 링크 직접 열기 ↗</a>
+      </div>
+
+      <div class="dialog-actions">
+        <button id="btn-close-companion" type="button" class="wii-pill-btn" data-i18n="companion_back_btn">코트로 돌아가기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Victory & Skill Rating Modal -->
+  <div id="victory-modal" class="wii-modal-backdrop hidden">
+    <div class="wii-skill-card">
+      <div class="skill-card-header" data-i18n="victory_header">클럽 실력 레이팅</div>
+      <div class="skill-card-body">
+        <div class="skill-chart-frame">
+          <canvas id="skill-graph-canvas" width="280" height="200"></canvas>
+        </div>
+        <div class="skill-mii-summary">
+          <div id="victory-result-banner" class="victory-result-banner" data-i18n="victory_win">승리!</div>
+          <div class="skill-score-pill">
+            <canvas id="victory-mii-icon" width="192" height="192"></canvas>
+            <div class="skill-score-meta">
+              <div class="skill-rating-number" id="skill-rating-value">1120</div>
+              <div class="skill-player-name" id="skill-player-name">플레이어 (+120)</div>
+            </div>
+          </div>
+          <div id="victory-match-score" class="victory-match-score">최종 세트 스코어: 2 - 0</div>
+        </div>
+      </div>
+      <div class="skill-card-footer">
+        <button id="btn-play-again" type="button" class="wii-footer-btn primary" data-i18n="btn_play_again">다시 하기</button>
+        <button id="btn-return-title" type="button" class="wii-footer-btn secondary" data-i18n="btn_menu">메인 메뉴</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { renderAllHudMiiAvatars } from './src/mii_avatars.js';
+    import { updateDomTexts, toggleLang } from './src/i18n.js';
+
+    renderAllHudMiiAvatars();
+    updateDomTexts();
+
+    // Bind all language toggle buttons
+    document.querySelectorAll('.btn-lang-toggle').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleLang();
+      });
+    });
+  </script>
+  <script type="module" src="./src/game_engine.js"></script>
+</body>
+</html>
